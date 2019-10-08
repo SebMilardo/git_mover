@@ -73,7 +73,28 @@ def download_issues(source_url, source, credentials):
     if status:
         # if the requests succeeded, sort the retireved issues by their number
         sorted_issues = sorted(json.loads(r.text), key=lambda k: k['number'])
+        sorted_issues = [i for i in sorted_issues if not 'pull_request' in i.keys()]
+        print(sorted_issues)
         return sorted_issues
+    return False
+
+
+def download_prs(source_url, source, credentials):
+    """
+    INPUT:
+        source_url: the root url for the GitHub API
+        source: the team and repo '<team>/<repo>' to retrieve prs from
+    OUTPUT: retrieved prs sorted by their number if request was successful. False otherwise
+    """
+    url = source_url + "repos/" + source + "/pulls?filter=all"
+    r = get_req(url, credentials)
+    status = check_res(r)
+    if status:
+        # if the requests succeeded, sort the retireved prs by their number
+        sorted_prs = sorted(json.loads(r.text), key=lambda k: k['number'])
+        sorted_prs = [i for i in sorted_prs if not 'pull_request' in i.keys()]
+        print(sorted_prs)
+        return sorted_prs
     return False
 
 
@@ -81,7 +102,7 @@ def download_labels(source_url, source, credentials):
     """
     INPUT:
         source_url: the root url for the GitHub API
-        source: the team and repo '<team>/<repo>' to retrieve labels from
+        source: the team and repo ']<team>/<repo>' to retrieve labels from
     OUTPUT: retrieved labels if request was successful. False otherwise
     """
     url = source_url + "repos/" + source + "/labels?filter=all"
@@ -228,6 +249,48 @@ def create_issues(issues, destination_url, destination, milestones, labels, mile
                 post_req(url, json.dumps(issue_prime), credentials)
 
 
+def create_prs(prs, destination_url, destination, milestones, labels, milestone_map, credentials, sameInstall):
+    """Post prs to GitHub
+    INPUT:
+        prs: python list of dicts containing pr info to be POSTED to GitHub
+        destination_url: the root url for the GitHub API
+        destination_urlination: the team and repo '<team>/<repo>' to post prs to
+        milestones: a boolean flag indicating that milestones were included in this migration
+        labels: a boolean flag indicating that labels were included in this migration
+    OUTPUT: Null
+    """
+    url = destination_url + "repos/" + destination + "/pulls"
+    for pr in prs:
+        # create a new pr object containing only the data necessary for the creation of a new pr
+        assignee = None
+        if (pr["assignee"] and sameInstall):
+            assignee = pr["assignee"]["login"]
+        pr_prime = {"title": pr["title"], "body": pr["body"],
+                       "assignee": assignee, "state": pr["state"],
+                       "head": pr["head"]["label"], "base": "master"}
+        # if milestones were migrated and the pr to be posted contains milestones
+        if milestones and "milestone" in pr and pr["milestone"] is not None:
+            # if the milestone associated with the pr is in the milestone map
+            if pr['milestone']['number'] in milestone_map:
+                # set the milestone value of the new pr to the updated number of the migrated milestone
+                pr_prime["milestone"] = milestone_map[pr["milestone"]["number"]]
+        # if labels were migrated and the pr to be migrated contains labels
+        if labels and "labels" in pr:
+            pr_prime["labels"] = pr["labels"]
+        r = post_req(url, json.dumps(pr_prime), credentials)
+        status = check_res(r)
+        # if adding the pr failed
+        if not status:
+            # get the message from the response
+            message = json.loads(r.text)
+            # if the error message is for an invalid entry because of the assignee field, remove it and repost with no assignee
+            if 'errors' in message and message['errors'][0]['code'] == 'invalid' and message['errors'][0]['field'] == 'assignee':
+                sys.stderr.write("WARNING: Assignee " + message['errors'][0]['value'] + " on pr \"" + pr_prime['title'] +
+                                 "\" does not exist in the destination repository. pr added without assignee field.\n\n")
+                pr_prime.pop('assignee')
+                post_req(url, json.dumps(pr_prime), credentials)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Migrate Milestones, Labels, and Issues between two GitHub repositories. To migrate a subset of elements (Milestones, Labels, Issues), use the element specific flags (--milestones, --lables, --issues). Providing no flags defaults to all element types being migrated.')
@@ -253,6 +316,8 @@ def main():
                         help='Toggle on Label migration.')
     parser.add_argument('--issues', '-i', action="store_true",
                         help='Toggle on Issue migration.')
+    parser.add_argument('--prs', '-p', action="store_true",
+                        help='Toggle on PR migration.')
     parser.add_argument('--releases', '-r', action="store_true",
                         help='Toggle on Release migration.')
     args = parser.parse_args()
@@ -288,10 +353,11 @@ def main():
 
     milestone_map = None
 
-    if args.milestones is False and args.labels is False and args.issues is False and args.releases is False:
+    if args.milestones is False and args.labels is False and args.issues is False and args.releases is False and args.prs is False:
         args.milestones = True
         args.labels = True
         args.issues = True
+        args.prs = True
         args.releases = True
 
     if args.milestones:
@@ -333,6 +399,21 @@ def main():
             quit()
         else:
             print("No Issues found. None migrated")
+
+    if args.prs:
+        prs = download_prs(source_root, source_repo, source_credentials)
+        if prs:
+            sameInstall = False
+            if (args.sourceRoot == args.destinationRoot):
+                sameInstall = True
+            create_prs(prs, destination_root, destination_repo, args.milestones,
+                        args.labels, milestone_map, destination_credentials, sameInstall)
+        elif prs is False:
+            sys.stderr.write(
+                'ERROR: PRs failed to be retrieved. Exiting...')
+            quit()
+        else:
+            print("No PRs found. None migrated")
 
     if args.releases:
         releases = download_releases(source_root, source_repo, source_credentials)
