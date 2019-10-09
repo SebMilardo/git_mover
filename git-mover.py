@@ -74,7 +74,7 @@ def download_issues(source_url, source, credentials):
         # if the requests succeeded, sort the retireved issues by their number
         sorted_issues = sorted(json.loads(r.text), key=lambda k: k['number'])
         sorted_issues = [i for i in sorted_issues if not 'pull_request' in i.keys()]
-        print(sorted_issues)
+        #print(sorted_issues)
         return sorted_issues
     return False
 
@@ -92,8 +92,7 @@ def download_prs(source_url, source, credentials):
     if status:
         # if the requests succeeded, sort the retireved prs by their number
         sorted_prs = sorted(json.loads(r.text), key=lambda k: k['number'])
-        sorted_prs = [i for i in sorted_prs if not 'pull_request' in i.keys()]
-        print(sorted_prs)
+        #print(sorted_prs)
         return sorted_prs
     return False
 
@@ -278,6 +277,25 @@ def create_prs(prs, destination_url, destination, milestones, labels, milestone_
         if labels and "labels" in pr:
             pr_prime["labels"] = pr["labels"]
         r = post_req(url, json.dumps(pr_prime), credentials)
+        status = check_res(r)
+        # if adding the pr failed
+        if not status:
+            # get the message from the response
+            message = json.loads(r.text)
+            # if the error message is for an invalid entry because of the assignee field, remove it and repost with no assignee
+            if 'errors' in message and message['errors'][0]['code'] == 'invalid' and message['errors'][0]['field'] == 'assignee':
+                sys.stderr.write("WARNING: Assignee " + message['errors'][0]['value'] + " on pr \"" + pr_prime['title'] +
+                                 "\" does not exist in the destination repository. pr added without assignee field.\n\n")
+                pr_prime.pop('assignee')
+                post_req(url, json.dumps(pr_prime), credentials)
+
+        my_data = r.json()
+        print('--My Data-')
+        print(my_data)
+        print('----------')
+        issue_url = destination_url + "repos/" + destination + "/issues/" + str(my_data["number"])
+        pr_update = {'labels': [i['name'] for i in pr['labels']], 'assignees': [i['login'] for i in pr['assignees']]}
+        r = post_req(issue_url, json.dumps(pr_update), credentials)
         status = check_res(r)
         # if adding the pr failed
         if not status:
