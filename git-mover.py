@@ -42,6 +42,17 @@ def post_req(url, data, credentials):
     return r
 
 
+def put_req(url, data, credentials):
+    """
+    INPUT: an API endpoint for posting data
+    OUTPUT: the request object containing the posted data response for successful requests. If a request fails, False is returned.
+    """
+    print("PUTTING: " + url)
+    r = requests.put(url=url, data=data, auth=(credentials['user_name'], credentials['token']), headers={
+                      'Content-type': 'application/json', 'Accept': 'application/vnd.github.v3.html+json'})
+    return r
+
+
 def download_milestones(source_url, source, credentials):
     """
     INPUT:
@@ -60,6 +71,24 @@ def download_milestones(source_url, source, credentials):
     return False
 
 
+def download_collaborators(source_url, source, credentials):
+    """
+    INPUT:
+        source_url: the root url for the GitHub API
+        source: the team and repo '<team>/<repo>' to retrieve milestones from
+    OUTPUT: retrieved milestones sorted by their number if request was successful. False otherwise
+    """
+    url = source_url + "repos/" + source + "/collaborators?filter=all"
+    r = get_req(url, credentials)
+    status = check_res(r)
+    if status:
+        # if the request succeeded, sort the retrieved collaborators by their number
+        sorted_collaborators = sorted(json.loads(
+            r.text), key=lambda k: k['id'])
+        return sorted_collaborators
+    return False
+
+
 def download_issues(source_url, source, credentials):
     """
     INPUT:
@@ -74,7 +103,6 @@ def download_issues(source_url, source, credentials):
         # if the requests succeeded, sort the retireved issues by their number
         sorted_issues = sorted(json.loads(r.text), key=lambda k: k['number'])
         sorted_issues = [i for i in sorted_issues if not 'pull_request' in i.keys()]
-        #print(sorted_issues)
         return sorted_issues
     return False
 
@@ -92,7 +120,6 @@ def download_prs(source_url, source, credentials):
     if status:
         # if the requests succeeded, sort the retireved prs by their number
         sorted_prs = sorted(json.loads(r.text), key=lambda k: k['number'])
-        #print(sorted_prs)
         return sorted_prs
     return False
 
@@ -126,6 +153,25 @@ def download_releases(source_url, source, credentials):
         return json.loads(r.text)
     return False
 
+def create_collaborators(collaborators, destination_url, destination, credentials):
+    """Post collaborators to GitHub
+    INPUT:
+        collaborators: python list of dicts containing collaborators info to be POSTED to GitHub
+        destination_url: the root url for the GitHub API
+        destination: the team and repo '<team>/<repo>' to post milestones to
+    OUTPUT: A list of collaborators
+    """
+    for collaborator in collaborators:
+        url = destination_url + "repos/" + destination + "/collaborators/" + collaborator["login"]
+        perm = "push"
+        if collaborator["permissions"]["admin"] == True:
+            perm = "admin"
+
+        # create a new collaborator that includes only the attributes needed to create a new milestone
+        r = put_req(url, json.dumps({"permission": perm}), credentials)
+        status = check_res(r)
+        print(status)
+    return {"done": "true"}
 
 def create_milestones(milestones, destination_url, destination, credentials):
     """Post milestones to GitHub
@@ -235,6 +281,18 @@ def create_issues(issues, destination_url, destination, milestones, labels, mile
         if labels and "labels" in issue:
             issue_prime["labels"] = issue["labels"]
         r = post_req(url, json.dumps(issue_prime), credentials)
+
+
+        my_data = r.json() # my_data is the response from the POST of the issue
+        comment_url = issue["comments_url"] # this is the comment URL used to GET comments from the original issue/pr
+        c = get_req(comment_url, credentials) # this is the response from GET of the original comment URL
+        my_comments = c.json() # this is the response from GET of the original comment URL in json
+        print('-------MY COMMENTS----------')
+        print(my_comments)
+        print('-------END COMMENTS---------')
+        if 'comments_url' in my_data.keys():
+            append_comments(my_comments, credentials, my_data["comments_url"])
+
         status = check_res(r)
         # if adding the issue failed
         if not status:
@@ -246,6 +304,25 @@ def create_issues(issues, destination_url, destination, milestones, labels, mile
                                  "\" does not exist in the destination repository. Issue added without assignee field.\n\n")
                 issue_prime.pop('assignee')
                 post_req(url, json.dumps(issue_prime), credentials)
+
+def append_comments(comments, credentials, comment_url):
+    for comment in comments:
+
+        comment_prime = {'body' : comment['body']}
+        r = post_req(comment_url, json.dumps(comment_prime), credentials)
+
+        status = check_res(r)
+        # if adding the issue failed
+        if not status:
+            # get the message from the response
+            message = json.loads(r.text)
+            # if the error message is for an invalid entry because of the assignee field, remove it and repost with no assignee
+            if 'errors' in message and message['errors'][0]['code'] == 'invalid' and message['errors'][0]['field'] == 'assignee':
+                sys.stderr.write("WARNING: Assignee " + message['errors'][0]['value'] + " on issue \"" + comment_prime['title'] +
+                                 "\" does not exist in the destination repository. Issue added without assignee field.\n\n")
+                issue_prime.pop('assignee')
+                post_req(comment_url, json.dumps(comment_prime), credentials)
+
 
 
 def create_prs(prs, destination_url, destination, milestones, labels, milestone_map, credentials, sameInstall):
@@ -289,10 +366,13 @@ def create_prs(prs, destination_url, destination, milestones, labels, milestone_
                 pr_prime.pop('assignee')
                 post_req(url, json.dumps(pr_prime), credentials)
 
-        my_data = r.json()
-        print('--My Data-')
-        print(my_data)
-        print('----------')
+        my_data = r.json() # my_data is the response from the POST of the issue
+        comment_url = pr["comments_url"] # this is the comment URL used to GET comments from the original issue/pr
+        c = get_req(comment_url, credentials) # this is the response from GET of the original comment URL
+        my_comments = c.json() # this is the response from GET of the original comment URL in json
+        if 'comments_url' in my_data.keys():
+            append_comments(my_comments, credentials, my_data["comments_url"])
+
         issue_url = destination_url + "repos/" + destination + "/issues/" + str(my_data["number"])
         pr_update = {'labels': [i['name'] for i in pr['labels']], 'assignees': [i['login'] for i in pr['assignees']]}
         r = post_req(issue_url, json.dumps(pr_update), credentials)
@@ -332,6 +412,8 @@ def main():
                         help='Toggle on Milestone migration.')
     parser.add_argument('--labels', '-l', action="store_true",
                         help='Toggle on Label migration.')
+    parser.add_argument('--collaborators', '-c', action="store_true",
+                        help='Toggle on Collaborator migration.')
     parser.add_argument('--issues', '-i', action="store_true",
                         help='Toggle on Issue migration.')
     parser.add_argument('--prs', '-p', action="store_true",
@@ -371,12 +453,13 @@ def main():
 
     milestone_map = None
 
-    if args.milestones is False and args.labels is False and args.issues is False and args.releases is False and args.prs is False:
+    if args.milestones is False and args.labels is False and args.issues is False and args.releases is False and args.prs is False and args.collaborators is False:
         args.milestones = True
         args.labels = True
         args.issues = True
         args.prs = True
         args.releases = True
+        args.collaborators = True
 
     if args.milestones:
         milestones = download_milestones(
@@ -402,6 +485,18 @@ def main():
             quit()
         else:
             print("No Labels found. None migrated")
+
+    if args.collaborators:
+        collaborators = download_collaborators(source_root, source_repo, source_credentials)
+        if collaborators:
+            create_collaborators(collaborators, destination_root,
+                        destination_repo, destination_credentials)
+        elif collaborators is False:
+            sys.stderr.write(
+                'ERROR: Collaborators failed to be retrieved. Exiting...')
+            quit()
+        else:
+            print("No Collaborators found. None migrated")
 
     if args.issues:
         issues = download_issues(source_root, source_repo, source_credentials)
