@@ -38,6 +38,22 @@ $ git-mover.py [-h] [--destinationToken [DESTINATIONTOKEN]]
 
 For authentication, GitMover uses a personal access token, which can be generated in your GitHub Profile settings.
 
+### Required Arguments for Main Bash Script
+  `-u  | --username`: Your GitHub (public or enterprise) username
+  
+  `-t  | --token`: Your GitHub (public or enterprise) personal access token
+  
+  `-so | --source-org`: the team to migrate from: `<org_name>/some-repo`
+
+  `-sr | --source-org`: the repo to migrate from: `some_org/<repo_name>`
+
+  `-do | --source-org`: the team to migrate to: `<org_name>/some-repo`
+
+  `-dr | --source-org`: the repo to migrate to: `some_org/<repo_name>`
+  
+  
+
+Below is some documentation on the original python script
 ### Positional Arguments for Python Script
   `user_name`: Your GitHub (public or enterprise) username: name@email.com
   
