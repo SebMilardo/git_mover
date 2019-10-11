@@ -164,7 +164,7 @@ def create_collaborators(collaborators, destination_url, destination, credential
     for collaborator in collaborators:
         url = destination_url + "repos/" + destination + "/collaborators/" + collaborator["login"]
         perm = "push"
-        if collaborator["permissions"]["admin"] == True:
+        if collaborator["permissions"]["admin"] == True or collaborator['login'] == credentials['user_name']:
             perm = "admin"
 
         # create a new collaborator that includes only the attributes needed to create a new milestone
