@@ -269,7 +269,8 @@ def create_issues(issues, destination_url, destination, milestones, labels, mile
         assignee = None
         if (issue["assignee"] and sameInstall):
             assignee = issue["assignee"]["login"]
-        issue_prime = {"title": issue["title"], "body": issue["body"],
+        body = issue['body'] + '\n\n' + 'Original by @' + issue['user']['login']
+        issue_prime = {"title": issue["title"], "body": body,
                        "assignee": assignee, "state": issue["state"]}
         # if milestones were migrated and the issue to be posted contains milestones
         if milestones and "milestone" in issue and issue["milestone"] is not None:
@@ -287,9 +288,6 @@ def create_issues(issues, destination_url, destination, milestones, labels, mile
         comment_url = issue["comments_url"] # this is the comment URL used to GET comments from the original issue/pr
         c = get_req(comment_url, credentials) # this is the response from GET of the original comment URL
         my_comments = c.json() # this is the response from GET of the original comment URL in json
-        print('-------MY COMMENTS----------')
-        print(my_comments)
-        print('-------END COMMENTS---------')
         if 'comments_url' in my_data.keys():
             append_comments(my_comments, credentials, my_data["comments_url"])
 
@@ -308,7 +306,8 @@ def create_issues(issues, destination_url, destination, milestones, labels, mile
 def append_comments(comments, credentials, comment_url):
     for comment in comments:
 
-        comment_prime = {'body' : comment['body']}
+        body = comment['body'] + '\n\n' + 'Original by @' + comment['user']['login']
+        comment_prime = {'body' : body}
         r = post_req(comment_url, json.dumps(comment_prime), credentials)
 
         status = check_res(r)
@@ -341,7 +340,8 @@ def create_prs(prs, destination_url, destination, milestones, labels, milestone_
         assignee = None
         if (pr["assignee"] and sameInstall):
             assignee = pr["assignee"]["login"]
-        pr_prime = {"title": pr["title"], "body": pr["body"],
+        body = pr['body'] + '\n\n' + 'Original by @' + pr['user']['login']
+        pr_prime = {"title": pr["title"], "body": body,
                        "assignee": assignee, "state": pr["state"],
                        "head": pr["head"]["label"], "base": "master"}
         # if milestones were migrated and the pr to be posted contains milestones
