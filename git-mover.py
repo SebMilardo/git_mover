@@ -25,7 +25,7 @@ def get_req(url, credentials):
     INPUT: an API endpoint for retrieving data
     OUTPUT: the request object containing the retrieved data for successful requests. If a request fails, False is returned.
     """
-    print("GETTING: " + url)
+    print("GETTING: " + url + str((credentials['user_name'], credentials['token'])))
     r = requests.get(url=url, auth=(credentials['user_name'], credentials['token']), headers={
                      'Content-type': 'application/json'})
     return r
@@ -96,7 +96,7 @@ def download_issues(source_url, source, credentials):
         source: the team and repo '<team>/<repo>' to retrieve issues from
     OUTPUT: retrieved issues sorted by their number if request was successful. False otherwise
     """
-    url = source_url + "repos/" + source + "/issues?filter=all"
+    url = source_url + "repos/" + source + "/issues?filter=all&state=all"
     r = get_req(url, credentials)
     status = check_res(r)
     if status:
@@ -253,7 +253,7 @@ def create_releases(releases, destination_url, destination, credentials):
             check_res(r)
 
 
-def create_issues(issues, destination_url, destination, milestones, labels, milestone_map, credentials, sameInstall):
+def create_issues(issues, destination_url, destination, milestones, labels, milestone_map, destination_credentials, source_credentials, sameInstall):
     """Post issues to GitHub
     INPUT:
         issues: python list of dicts containing issue info to be POSTED to GitHub
@@ -281,15 +281,15 @@ def create_issues(issues, destination_url, destination, milestones, labels, mile
         # if labels were migrated and the issue to be migrated contains labels
         if labels and "labels" in issue:
             issue_prime["labels"] = issue["labels"]
-        r = post_req(url, json.dumps(issue_prime), credentials)
+        r = post_req(url, json.dumps(issue_prime), destination_credentials)
 
 
         my_data = r.json() # my_data is the response from the POST of the issue
         comment_url = issue["comments_url"] # this is the comment URL used to GET comments from the original issue/pr
-        c = get_req(comment_url, credentials) # this is the response from GET of the original comment URL
+        c = get_req(comment_url, source_credentials) # this is the response from GET of the original comment URL
         my_comments = c.json() # this is the response from GET of the original comment URL in json
         if 'comments_url' in my_data.keys():
-            append_comments(my_comments, credentials, my_data["comments_url"])
+            append_comments(my_comments, destination_credentials, my_data["comments_url"])
 
         status = check_res(r)
         # if adding the issue failed
@@ -301,11 +301,10 @@ def create_issues(issues, destination_url, destination, milestones, labels, mile
                 sys.stderr.write("WARNING: Assignee " + message['errors'][0]['value'] + " on issue \"" + issue_prime['title'] +
                                  "\" does not exist in the destination repository. Issue added without assignee field.\n\n")
                 issue_prime.pop('assignee')
-                post_req(url, json.dumps(issue_prime), credentials)
+                post_req(url, json.dumps(issue_prime), destination_credentials)
 
 def append_comments(comments, credentials, comment_url):
     for comment in comments:
-
         body = comment['body'] + '\n\n' + 'Original by @' + comment['user']['login']
         comment_prime = {'body' : body}
         r = post_req(comment_url, json.dumps(comment_prime), credentials)
@@ -499,13 +498,19 @@ def main():
             print("No Collaborators found. None migrated")
 
     if args.issues:
+        print (str(source_credentials))
+        print (str(destination_credentials))
+
         issues = download_issues(source_root, source_repo, source_credentials)
+
+        print (issues)
+
         if issues:
             sameInstall = False
             if (args.sourceRoot == args.destinationRoot):
                 sameInstall = True
             create_issues(issues, destination_root, destination_repo, args.milestones,
-                          args.labels, milestone_map, destination_credentials, sameInstall)
+                          args.labels, milestone_map, destination_credentials, source_credentials, sameInstall)
         elif issues is False:
             sys.stderr.write(
                 'ERROR: Issues failed to be retrieved. Exiting...')
